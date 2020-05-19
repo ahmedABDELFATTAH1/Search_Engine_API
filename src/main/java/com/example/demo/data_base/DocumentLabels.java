@@ -1,6 +1,7 @@
 package com.example.demo.data_base;
 
 public class DocumentLabels {
+    public static final String HYPER_LINK_ID = "id";
     public static final String HYPER_LINK = "hyper_link";
     public static final String  DATE_MODIFIED = "data_modified";
     public static final String FILE_PATH= "doc_path_file";

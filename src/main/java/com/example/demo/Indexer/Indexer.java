@@ -1,15 +1,6 @@
 package com.example.demo.Indexer;
 
-
-import com.example.demo.Stemmer.Stemmer;
-
-import com.example.demo.data_base.DataBase;
-import org.apache.commons.lang3.StringUtils;
-import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Element;
-import org.jsoup.select.Elements;
-
+import java.awt.*;
 import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -17,15 +8,27 @@ import java.net.URLConnection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+
+import com.example.demo.Stemmer.Stemmer;
+import com.example.demo.data_base.DataBase;
+import org.apache.commons.lang3.StringUtils;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
+
 import java.util.Date;
 import java.util.HashMap;
+import java.io.File;  // Import the File class
+import java.io.FileNotFoundException;  // Import this class to handle errors
+import java.util.Scanner; // Import the Scanner class to read text files
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class Indexer {
     private Stemmer S;
 
-//    private ArrayList<String> links;
+    //    private ArrayList<String> links;
     private ResultSet links;
 
     private HashMap<String, IndexAndFreq> DocumentMap;
@@ -88,9 +91,9 @@ public class Indexer {
         while (this.links.next()){
             Indexing(this.links.getString("url"));
 
-//            FillDocument();
-//            FillWord_Document();
-//            FillImageTable();
+            FillDocument();
+            FillWord_Document();
+            FillImageTable();
 
             PrintMap(DocumentMap);
 
@@ -127,7 +130,7 @@ public class Indexer {
         for (Element element : elements) {
 
             // Image Map
-            if(element.nodeName().equals("img") && StringUtils.isNotEmpty(element.attr("src")) && StringUtils.isNotEmpty(element.attr("alt"))){
+            if(element.nodeName().equals("img") && StringUtils.isNotEmpty(element.attr("src")) && StringUtils.isNotEmpty(element.attr("alt")) && IsImage(element.attr("src"))){
                 String ImageStemmed = S.stem(element.attr("alt"));
                 if(StringUtils.isNotEmpty(ImageStemmed)){
                     FillImages(element,ImageStemmed);
@@ -140,7 +143,7 @@ public class Indexer {
             // Ordinary Map
             String Stemmed = S.stem(element.ownText());
             if(StringUtils.isNotEmpty(Stemmed)){
-                FillDocumentMap(Stemmed);
+                FillDocumentMap(Stemmed, GetScore(element.nodeName()));
                 System.out.println(element.nodeName() + " => " + element.ownText());
 
                 // Brief
@@ -157,19 +160,64 @@ public class Indexer {
     }
 
     // Take stemmed line and put it in the database
-    private void FillDocumentMap(String s){
+    private void FillDocumentMap(String s,int score){
         for (String word : s.split(" "))
         {
             if (DocumentMap.containsKey(word)){
                 DocumentMap.get(word).Freg++;
+                DocumentMap.get(word).Extra+=score;
                 DocumentMap.get(word).Index.add(DocumentCount);
             }else{
                 IndexAndFreq temp = new IndexAndFreq();
                 temp.Freg = 1;
                 temp.Index.add(DocumentCount);
+                temp.Extra = score;
                 DocumentMap.put(word, temp);
             }
             DocumentCount++;
+        }
+    }
+
+    private int GetScore(String tag){
+        switch(tag){
+            case("h1"):
+                return 6;
+
+            case("h2"):
+                return 5;
+
+            case("h3"):
+                return 4;
+
+            case("h4"):
+                return 3;
+
+            case("h5"):
+                return 2;
+
+            case("h6"):
+                return 1;
+
+            case("em"):
+                return 1;
+
+            case("strong"):
+                return 2;
+
+            case("b"):
+                return 2;
+
+            case("i"):
+                return 1;
+
+            case("u"):
+                return 2;
+
+            case("title"):
+                return 10;
+
+            default:
+                return 0;
         }
     }
 
@@ -185,7 +233,7 @@ public class Indexer {
         System.out.println("=============== " + Title + " =================");
 
         for (String key : DocumentMap.keySet()){
-            System.out.print(key + " => " + DocumentMap.get(key).Freg+" => ");
+            System.out.print(key + " => " + DocumentMap.get(key).Freg+" => " + DocumentMap.get(key).Extra +" => ");
             for(int i : DocumentMap.get(key).Index){
                 System.out.print(i + " ");
             }
@@ -197,6 +245,7 @@ public class Indexer {
 
     private void GetDocumentInformation(String url) throws MalformedURLException, SQLException {
         Title = document.title();
+        FillDocumentMap(S.stem(Title),GetScore("title"));
         Link = url;
 
         try{
@@ -209,36 +258,48 @@ public class Indexer {
         }
 
         URL U = new URL(url);
+        System.out.println(U.getHost());
+        System.out.println("===========================================================");
+        System.out.println("===========================================================");
         String Query = "Select host_ref_times from hosts_popularity where host_name = '" + U.getHost() + "';";
         ResultSet r = db.selectQuerydb(Query);
-        r.next();
-        int temp= r.getInt(1);
-        Popularity = (float)temp/TotalFreq;
+        if(r.next() != false){
+            int temp= r.getInt(1);
+            Popularity = (float)temp/TotalFreq;
+        }else{
+            Popularity = 0;
+        }
+
     }
 
-    private String GetTagData(String s, String line){
-        Pattern p = Pattern.compile("<"+s+">(.+?)</"+s+">");
-        Matcher m = p.matcher(line);
+    private Boolean IsImage(String s){
+        Pattern p = Pattern.compile("http(s)?:\\/\\/.*");
+        Matcher m = p.matcher(s);
         if (m.find())
-            return (m.group(1));
+            return true;
         else
-            return null;
+            return false;
     }
 
     public void FillDocument() {
+        Title=Title.replace('\"',' ');
+        Brief=Brief.replace('\"',' ');
+        Title=Title.replace("'"," ");
+        Brief=Brief.replace("'","");
         String Query = "insert into document(hyper_link ," +
-                                            "data_modified ," +
-                                            "stream_words ," +
-                                            "popularity ," +
-                                            "Title" +
-                                            ") " +
-                                            "values('" +
-                                            Link + "' ,'" +
-                                            sqlDate + "' ,'" +
-                                            Brief + "' ," +
-                                            Popularity + " ,'" +
-                                            Title +
-                                            "');";
+                "data_modified ," +
+                "stream_words ," +
+                "popularity ," +
+                "Title" +
+                ") " +
+                "values('" +
+                Link + "' ,'" +
+                sqlDate + "' ,'" +
+                Brief + "' ," +
+                Popularity + " ,'" +
+                Title +
+                "');";
+        System.out.println(Query);
         try{
             LastLinkId = db.insertdb(Query);
         }catch(SQLException throwables){
@@ -247,55 +308,72 @@ public class Indexer {
     }
 
     public void FillWord_Document(){
+        ArrayList<String> keys=new ArrayList<>();
+        ArrayList<Integer> IDs=new ArrayList<>();
         for (String key : DocumentMap.keySet()){
+            key.replace('\"', ' ');
             int ID = 0;
-            float tf = (float)DocumentMap.get(key).Freg/DocumentCount;
+            float tf = (float)(DocumentMap.get(key).Freg+DocumentMap.get(key).Extra)/DocumentCount;
             String Query = "insert into word_document(word_name ," +
-                                                "document_hyper_link_id ," +
-                                                "tf ," +
-                                                "score" +
-                                                ") " +
-                                                "values('" +
-                                                key + "' ,'" +
-                                                LastLinkId + "' ," +
-                                                tf+"," +
-                                                0 +
-                                                ");";
+                    "document_hyper_link_id ," +
+                    "tf ," +
+                    "score" +
+                    ") " +
+                    "values(\"" +
+                    key + "\" ," +
+                    LastLinkId + " ," +
+                    tf+"," +
+                    0 +
+                    ");";
             try{
                 ID = db.insertdb(Query);
             }catch(SQLException throwables){
                 throwables.printStackTrace();
             }
 
-            for(int index : DocumentMap.get(key).Index){
-                Query = "insert into word_index(word_document_id ," +
-                                                "word_position" +
-                                                ") " +
-                                                "values(" +
-                                                ID + " ," +
-                                                index +
-                                                ");";
-                try{
-                    db.insertdb(Query);
-                }catch(SQLException throwables){
-                    throwables.printStackTrace();
-                }
-            }
+            keys.add(key);
+            IDs.add(ID);
 
         }
+        String indexQuery= "insert into word_index(word_document_id ," +
+                "word_position" +
+                ") " +
+                "values";
+        for(int i=0;i<keys.size();i++) {
+            for (int index : DocumentMap.get(keys.get(i)).Index) {
+                indexQuery += "(" + IDs.get(i) + " ," + index + "),";
+            }
+        }
+            if (indexQuery.endsWith(",")) {
+                indexQuery = indexQuery.substring(0, indexQuery.length() - 1);
+            }
+            try {
+                System.out.println(indexQuery);
+                db.insertdb(indexQuery);
+            } catch (SQLException throwables) {
+                throwables.printStackTrace();
+            }
     }
 
     private void FillImageTable(){
         for (ImageData i : Images){
-                String Query = "insert into word_index(image_url ," +
-                                                        "caption" +
-                                                        "stemmed" +
-                                                        ") " +
-                                                        "values('" +
-                                                        i.Src + "' ,'" +
-                                                        i.Catption + "' ,'" +
-                                                        i.Stemmed +
-                                                        "');";
+            String src = i.Src;
+            String caption = i.Catption;
+            String stemmed = i.Stemmed;
+
+            caption=caption.replace('\"',' ');
+            stemmed=stemmed.replace('\"',' ');
+            caption=caption.replace("'"," ");
+            stemmed=stemmed.replace("'","");
+            String Query = "insert into image(image_url ," +
+                    "caption," +
+                    "stemmed" +
+                    ") " +
+                    "values('" +
+                    src + "' ,'" +
+                    caption + "' ,'" +
+                    stemmed +
+                    "');";
             try{
                 db.insertdb(Query);
             }catch(SQLException throwables){
@@ -307,19 +385,7 @@ public class Indexer {
 
     public static void main(String[] args) throws SQLException {
 
-        ArrayList<String> links= new ArrayList<>();
-//        links.add("https://www.tor.com/2016/09/28/the-city-born-great/");
-//        links.add("https://www.facebook.com");
-//        links.add("https://worldbuilding.stackexchange.com/questions/tagged/medicine/");
-//        links.add("https://elegant-jones-f4e94a.netlify.com/valid_doc.html");
-//        links.add("https://wuzzuf.net/internship/288003-PHP-Developer---Internship-ElMnassa-Innovation-Development-Cairo-Egypt?l=cup&t=bj&a=Internships-in-Egypt&o=2");
-//        links.add("https://localhost/test.html");
-//        links.add("Check out my cool website: <ytd-rich-grid-video-renderer> how are you <a href='http://example.com' onclick='javascript: extractUsersSessionId()'>It's right here</a> </ytd-rich-grid-video-renderer>");
-
-        // =======================================
-
-        // Those two line which mokhtar will call
-        Indexer indexer = new Indexer();
+//        Indexer indexer = new Indexer();
     }
 }
 
@@ -327,6 +393,7 @@ public class Indexer {
 class IndexAndFreq{
     int Freg;
     ArrayList<Integer> Index = new ArrayList<>();
+    int Extra = 0;
 }
 
 class ImageData{

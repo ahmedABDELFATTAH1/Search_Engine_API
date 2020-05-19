@@ -1,5 +1,7 @@
 package com.example.demo.api;
+import com.example.demo.ranker.Ranker.ImageResult;
 import com.example.demo.ranker.Trends;
+import org.apache.commons.lang3.StringUtils;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -29,7 +31,7 @@ public class APIs {
                                  @RequestParam(value = "region", required = true, defaultValue = "Egypt") String region) throws SQLException, JSONException {
 
         names=trends.getNames(search_query);
-        ranker.addSearchQuery(search_query);
+        ranker.addSearchQuery(search_query.replace("\"",""));
         if(names.size()>0)
         {
             for(String name : names)
@@ -39,7 +41,18 @@ public class APIs {
 
         }
         listOfWords = queryPreProcessor(search_query);
-        ArrayList<DocumentResult> results=ranker.makeRank(listOfWords,false);
+        String[] words =listOfWords.get(0).split(" ");
+        ArrayList<String> wordsArray=new ArrayList<>();
+        for(String word :words)
+        {
+            wordsArray.add(word);
+        }
+        String[] phrase =null;
+        if(listOfWords.size()>1)
+        {
+            phrase=listOfWords.get(1).split(" ");
+        }
+        ArrayList<DocumentResult> results=ranker.makeRank(wordsArray,false,phrase);
         for(DocumentResult result : results)
         {
             System.out.println(result.hyper_link);
@@ -61,43 +74,36 @@ public class APIs {
     private ArrayList<String> queryPreProcessor(String search_query) {
         ArrayList<String> result=new ArrayList<>();
         Stemmer S = new Stemmer();
-        String queryList[] = search_query.split("\"");
-        int itr=0;
-        for(int i=0;i<queryList.length;i++)
+        String[] valuesInQuotes = StringUtils.substringsBetween(search_query , "\"", "\"");
+        String stemmed= S.stem(search_query);
+        result.add(stemmed);
+        if(valuesInQuotes!=null)
         {
-            if(queryList[i].length()!=0&&queryList[i]!=" ") {
-                if (i % 2 == 0) {
-                    //String stemmed = S.stem(search_query);
-                    String splitWords[] = search_query.split(" ");
-                    for (int j = 0; j < splitWords.length; j++) {
-                        result.add(splitWords[j]);
-                    }
-                } else {
-                    result.add(queryList[i]);
-                }
-            }
+            result.add(S.stem(valuesInQuotes[0]));
         }
-
-    return result;
+        return result;
     }
+
 
     @GetMapping(value="image")
     public String getImage( @RequestParam(value = "search_query") String search_query,
                                  @RequestParam(value = "region", required = true, defaultValue = "honey") String region) throws SQLException, JSONException {
-        listOfWords = queryPreProcessor(search_query);
-        ArrayList<DocumentResult> results=ranker.makeRank(listOfWords,true);
-        for(DocumentResult result : results)
+
+
+        Stemmer s=new Stemmer();
+        String words = s.stem(search_query);
+        ArrayList<Ranker.ImageResult> results= ranker.imageSearch(words);
+        for(ImageResult result : results)
         {
-            System.out.println(result.hyper_link);
-            System.out.println(result.brief);
-            System.out.println(result.title);
+            System.out.println(result.image_url);
+            System.out.println(result.caption);
         }
         JSONArray jsonArray= new JSONArray();
         for(int i=0;i<results.size();i++)
         {
             JSONObject jsonObject = new JSONObject();
-            jsonObject.put("IMAGE_CAPTION",results.get(i).title);
-            jsonObject.put("IMAGE_URL", results.get(i).hyper_link);
+            jsonObject.put("IMAGE_CAPTION",results.get(i).caption);
+            jsonObject.put("IMAGE_URL", results.get(i).image_url);
             jsonArray.put(jsonObject) ;
         }
         return  jsonArray.toString();

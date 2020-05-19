@@ -2,6 +2,7 @@ package com.example.demo.ranker;
 
 import com.example.demo.data_base.*;
 
+import javax.xml.crypto.Data;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -10,7 +11,6 @@ import java.util.Comparator;
 public class Ranker {
     public static final String SUGGESTION = "search_query";
     DataBase db = null;
-
     public Ranker() {
         db = new DataBase();
         try {
@@ -27,13 +27,9 @@ public class Ranker {
         }
     }
 
-    private Boolean wordExists(String word, Boolean imageSearch) throws SQLException {
+    private Boolean wordExists(String word) throws SQLException {
         String sql_request = null;
-        if (imageSearch) {
-            sql_request = "SELECT * FROM " + DataBase.imageWordTableName + " WHERE " + WordImageLabels.WORD_NAME + " = '" + word + "'";
-        } else {
-            sql_request = "SELECT * FROM " + DataBase.documentWordTableName + " WHERE " + WordDocumentLabels.WORD_NAME + " = '" + word + "'";
-        }
+        sql_request = "SELECT * FROM " + DataBase.documentWordTableName + " WHERE " + WordDocumentLabels.WORD_NAME + " = '" + word + "'";
         ResultSet rs = null;
         try {
             rs = db.selectQuerydb(sql_request);
@@ -43,14 +39,10 @@ public class Ranker {
         return rs.next();
     }
 
-    private Double getIDF(String word, Boolean imageSearch) throws SQLException {
+    private Double getIDF(String word) throws SQLException {
         //number of documents divided by number number of documents where the word is there
         String sql_request = null;
-        if (imageSearch) {
-            sql_request = "SELECT COUNT(*) FROM " + DataBase.imageTableName;
-        } else {
-            sql_request = "SELECT COUNT(*) FROM " + DataBase.documentTableName;
-        }
+        sql_request = "SELECT COUNT(*) FROM " + DataBase.documentTableName;
         ResultSet rs = null;
         try {
             rs = db.selectQuerydb(sql_request);
@@ -59,16 +51,8 @@ public class Ranker {
         }
         rs.next();
         Integer numberDocuments = rs.getInt(1);
-
-        if (imageSearch) {
-            sql_request = "SELECT COUNT(*) FROM " + DataBase.imageWordTableName + " where " + WordImageLabels.WORD_NAME +
+        sql_request = "SELECT COUNT(*) FROM " + DataBase.documentWordTableName + " where " + WordDocumentLabels.WORD_NAME +
                     " ='" + word + "';";
-
-        } else {
-            sql_request = "SELECT COUNT(*) FROM " + DataBase.documentWordTableName + " where " + WordDocumentLabels.WORD_NAME +
-                    " ='" + word + "';";
-
-        }
         rs = null;
         try {
             rs = db.selectQuerydb(sql_request);
@@ -78,68 +62,42 @@ public class Ranker {
         rs.next();
         Integer numberWordDocuments = rs.getInt(1);
         Double IDF = Math.log10(Float.valueOf(numberDocuments) / Float.valueOf(numberWordDocuments));
-        return IDF + 1;
+        return IDF ;
 
     }
 
-    private void relevanceWordDocument(String word, Double IDF, Boolean imageSearch) throws SQLException {
+    private void relevanceWordDocument(String word, Double IDF) throws SQLException {
         String sql_request = null;
-        if (imageSearch) {
-            sql_request = "SELECT * FROM " + DataBase.imageWordTableName + " where " + WordImageLabels.WORD_NAME +
+        sql_request = "SELECT * FROM " + DataBase.documentWordTableName + " where " + WordDocumentLabels.WORD_NAME +
                     "= '" + word + "';";
-
-        } else {
-            sql_request = "SELECT * FROM " + DataBase.documentWordTableName + " where " + WordDocumentLabels.WORD_NAME +
-                    "= '" + word + "';";
-
-        }
         ResultSet rs = null;
         try {
             rs = db.selectQuerydb(sql_request);
         } catch (SQLException throwables) {
             throwables.printStackTrace();
         }
-        if (imageSearch) {
             while (rs.next()) {
-                String hyper_link = rs.getString(WordImageLabels.IMAGE_HYPER_LINK);
-                Float tf = rs.getFloat(WordImageLabels.TERM_FREQUENCY);
-                Double score = rs.getFloat(WordImageLabels.SCORE) + tf * IDF;
-                String updateScore = "UPDATE " + DataBase.imageWordTableName +
-                        " SET " + WordImageLabels.SCORE + " = " + score +
-                        " WHERE " + WordImageLabels.WORD_NAME + " = '" + word + "' and " + WordImageLabels.IMAGE_HYPER_LINK +
-                        " = '" + hyper_link + " ';";
-                try {
-                    db.updatedb(updateScore);
-                } catch (SQLException throwables) {
-                    throwables.printStackTrace();
-                }
-
-            }
-
-        } else {
-            while (rs.next()) {
-                String hyper_link = rs.getString(WordDocumentLabels.DOCUMENT_HYPER_LINK);
+                String hyper_link_id = rs.getString(WordDocumentLabels.DOCUMENT_HYPER_LINK_ID);
                 Float tf = rs.getFloat(WordDocumentLabels.TERM_FREQUENCY);
-                Float popularity = getDocumentPopularity(hyper_link);
-                Double score = rs.getFloat(WordDocumentLabels.SCORE) + tf * IDF * popularity;
+                Float popularity = getDocumentPopularity(hyper_link_id);
+                Double score = rs.getFloat(WordDocumentLabels.SCORE) + (1+tf) * (1+IDF) * (popularity+1);
                 String updateScore = "UPDATE " + DataBase.documentWordTableName +
                         " SET " + WordDocumentLabels.SCORE + " = " + score +
-                        " WHERE " + WordDocumentLabels.WORD_NAME + " = '" + word + "' and " + WordDocumentLabels.DOCUMENT_HYPER_LINK +
-                        " = '" + hyper_link + " ';";
+                        " WHERE " + WordDocumentLabels.WORD_NAME + " = '" + word + "' and " + WordDocumentLabels.DOCUMENT_HYPER_LINK_ID +
+                        " = '" + hyper_link_id + " ';";
                 try {
                     db.updatedb(updateScore);
                 } catch (SQLException throwables) {
                     throwables.printStackTrace();
                 }
 
-            }
         }
 
     }
 
-    private Float getDocumentPopularity(String hyperLink) throws SQLException {
-        String sql_request = "SELECT " + DocumentLabels.POPULARITY + " FROM " + DataBase.documentTableName + " Where " + DocumentLabels.HYPER_LINK +
-                " = '" + hyperLink + "';";
+    private Float getDocumentPopularity(String hyperLink_id) throws SQLException {
+        String sql_request = "SELECT " + DocumentLabels.POPULARITY + " FROM " + DataBase.documentTableName + " Where " + DocumentLabels.HYPER_LINK_ID +
+                " = '" + hyperLink_id + "';";
         ResultSet rs = null;
         try {
             rs = db.selectQuerydb(sql_request);
@@ -151,15 +109,11 @@ public class Ranker {
         return popularity;
     }
 
-    void clearScores(Boolean imageSearch) {
+    void clearScores() {
         String sql_request = null;
-        if (imageSearch) {
-            sql_request = "UPDATE " + DataBase.imageWordTableName + " SET " + WordImageLabels.SCORE +
+        sql_request = "UPDATE " + DataBase.documentWordTableName + " SET " + WordDocumentLabels.SCORE +
                     " = 0;";
-        } else {
-            sql_request = "UPDATE " + DataBase.documentWordTableName + " SET " + WordDocumentLabels.SCORE +
-                    " = 0;";
-        }
+
         try {
             db.updatedb(sql_request);
         } catch (SQLException throwables) {
@@ -167,16 +121,12 @@ public class Ranker {
         }
     }
 
-    Float getScore(String document, Boolean imageSearch) throws SQLException {
+    Float getScore(String document) throws SQLException {
         String sql_request = null;
-        if (imageSearch) {
-            sql_request = "SELECT SUM(" + WordDocumentLabels.SCORE + ") FROM " + DataBase.imageWordTableName +
-                    " where " + WordImageLabels.IMAGE_HYPER_LINK + " = '" + document + "';";
-        } else {
-            sql_request = "SELECT SUM(" + WordDocumentLabels.SCORE + ") FROM " + DataBase.documentWordTableName +
-                    " where " + WordDocumentLabels.DOCUMENT_HYPER_LINK + " = '" + document + "';";
+        sql_request = "SELECT SUM(" + WordDocumentLabels.SCORE + ") FROM " + DataBase.documentWordTableName +
+                    " where " + WordDocumentLabels.DOCUMENT_HYPER_LINK_ID + " = '" + document + "';";
 
-        }
+
         ResultSet rs = null;
         rs = db.selectQuerydb(sql_request);
         rs.next();
@@ -184,118 +134,97 @@ public class Ranker {
     }
 
     //private
-    public ArrayList<DocumentResult> makeRank(ArrayList<String> search_list, Boolean imageSearch) throws SQLException {
-        clearScores(imageSearch);
+    public ArrayList<DocumentResult> makeRank(ArrayList<String> search_list, Boolean imageSearch,String[] phrase) throws SQLException {
+        clearScores();
         ArrayList<String> criticalDocuments = null;
+        if(phrase!=null)
+        {
+            criticalDocuments = phraseSearching(phrase, imageSearch);
+        }
         for (int i = 0; i < search_list.size(); i++) {
             String word = search_list.get(i);
-            String phrase[] = word.split(" ");
-            if (phrase.length > 1)//phrase searching logic
-            {
-                criticalDocuments = phraseSearching(phrase, imageSearch);//handle multiple phrase searching
-                continue;
-            }
-            if (!wordExists(word, imageSearch)) {
+            if (!wordExists(word)) {
                 System.out.println("word doesnt exist");
                 continue;
             } else {
                 System.out.println("word does exist");
             }
-            Double IDF = getIDF(word, imageSearch);
-            relevanceWordDocument(word, IDF, imageSearch);
+            Double IDF = getIDF(word);
+            relevanceWordDocument(word, IDF);
         }
         ArrayList<sortDocuments> sortedDocuments = null;
         if (criticalDocuments != null) {
             sortedDocuments = new ArrayList<>();
-            //TODO: get the score of all of them with each word and accumelate the results
             for (String document : criticalDocuments) {
-                Float score = getScore(document, imageSearch);
+                Float score = getScore(document);
                 sortedDocuments.add(new sortDocuments(document, score));
             }
             sortedDocuments.sort(Comparator.comparing(sortDocuments::getScore));
         } else {
-            sortedDocuments = getHighestScoresDocuments(100, imageSearch);
+            sortedDocuments = getHighestScoresDocuments(100);
         }
         ArrayList<DocumentResult> documentResult = new ArrayList<>();
         for (sortDocuments doc : sortedDocuments) {
             String hyper_link = doc.hyper_link;
-            String brief = getBrief(hyper_link, imageSearch);
-            String title = getTitle(hyper_link, imageSearch);
-            documentResult.add(new DocumentResult(hyper_link, brief, title));
+            String brief = getBrief(hyper_link);
+            String title = getTitle(hyper_link);
+            documentResult.add(new DocumentResult(hyper_link,title, brief));
         }
         return documentResult;
     }
 
-    private String getTitle(String hyper_link, Boolean imageSearch) throws SQLException {
+    private String getTitle(String hyper_link) throws SQLException {
         String sql_request = null;
-        if (imageSearch) {
-            return "garbage";
-
-        } else {
             sql_request = " SELECT " + DocumentLabels.TITLE + " FROM " + DataBase.documentTableName + " WHERE " + DocumentLabels.HYPER_LINK +
                     " ='" + hyper_link + "';";
-
-        }
         ResultSet rs = null;
         rs = db.selectQuerydb(sql_request);
         rs.next();
-        if (imageSearch)
-            return rs.getString(ImageLabels.CAPTION);
-        else
-            return rs.getString(DocumentLabels.TITLE);
+        return rs.getString(DocumentLabels.TITLE);
 
 
     }
 
-    private String getBrief(String hyper_link, Boolean imageSearch) throws SQLException {
+    private String getBrief(String hyper_link) throws SQLException {
         String sql_request = null;
-        if (imageSearch) {
-            sql_request = " SELECT " + ImageLabels.CAPTION + " FROM " + DataBase.imageTableName + " WHERE " + ImageLabels.IMAGE_URL +
+        sql_request = " SELECT " + DocumentLabels.STREAM_WORDS + " FROM " + DataBase.documentTableName + " WHERE " + DocumentLabels.HYPER_LINK +
                     " ='" + hyper_link + "';";
-        } else {
-            sql_request = " SELECT " + DocumentLabels.STREAM_WORDS + " FROM " + DataBase.documentTableName + " WHERE " + DocumentLabels.HYPER_LINK +
-                    " ='" + hyper_link + "';";
-        }
+
         ResultSet rs = null;
         rs = db.selectQuerydb(sql_request);
         rs.next();
-        if (imageSearch) {
-            String caption = rs.getString(ImageLabels.CAPTION);
-            return caption;
-        } else {
-            String stream_words = rs.getString(DocumentLabels.STREAM_WORDS);
-            String brief = null;
-            if (stream_words.length() > 1000) {
-                brief = stream_words.substring(0, 1000);
-            } else {
-                brief = stream_words;
-            }
-            return brief;
+        String stream_words="no brief avialable";
+        try {
+            stream_words = rs.getString(DocumentLabels.STREAM_WORDS);
         }
+        catch (SQLException e)
+        {
+
+        }
+
+        String brief = null;
+        if (stream_words.length() > 1000) {
+            brief = stream_words.substring(0, 1000);
+        } else {
+            brief = stream_words;
+        }
+        return brief;
+
     }
 
     private ArrayList<String> phraseSearching(String[] phrase, Boolean imageSearch) throws SQLException {
-        /*
-    //for every returned web page url search for the index of the word
-    //increment every one of them by one and go to the next word
-    //for that url see the positions of the next word and if it matches one of the numbers in that array
-    //save that place
-    //if not delete that place
-    //if that array becomes empty then that document is bad so don't take it
-    //if number of words reach it's end so that Document is good so take it please
-         */
         ArrayList<String> criticalDocuments = new ArrayList<>();
         String word = phrase[0];
-        ArrayList<String> Documents = getDocuments(word);
-        for (String document : Documents) {
+        ArrayList<String> Documents = getDocumentsId(word);
+        for (String documentId : Documents) {
             word = phrase[0];
-            ArrayList<Integer> positions = getPositions(document, word);
+            ArrayList<Integer> positions = getPositions(documentId, word);
             for (int i = 1; i < phrase.length; i++) {
                 for (int itr = 0; itr < positions.size(); itr++) {
                     positions.set(itr, positions.get(itr) + 1);
                 }
                 word = phrase[i];
-                ArrayList<Integer> newPositions = getPositions(document, word);
+                ArrayList<Integer> newPositions = getPositions(documentId, word);
                 for (int second = 0; second < positions.size(); second++) {
                     Boolean concatinate = false;
                     for (int first = 0; first < newPositions.size(); first++) {
@@ -311,17 +240,36 @@ public class Ranker {
 
             }
             if (positions.size() > 0) {
-                criticalDocuments.add(document);
+
+                criticalDocuments.add(getDocumentUrl(documentId));
             }
         }
         return criticalDocuments;
     }
+   private String getDocumentUrl(String document_id) throws SQLException {
+       String sql_query= "SELECT "+DocumentLabels.HYPER_LINK+" FROM "+DataBase.documentTableName+" WHERE "+DocumentLabels.HYPER_LINK_ID+
+               " = "+document_id+";";
 
-    private ArrayList<Integer> getPositions(String document, String word) throws SQLException {
+       ResultSet rs = null;
+       rs = db.selectQuerydb(sql_query);
+       rs.next();
+       return rs.getString(1);
+   }
+    private Integer getWordDocumentId(String document_id, String word) throws SQLException {
+        String sql_request = "SELECT " + WordDocumentLabels.WORD_DOCUMENT_ID + " FROM " + DataBase.documentWordTableName
+                + " WHERE " + WordDocumentLabels.DOCUMENT_HYPER_LINK_ID + " = " + document_id + " AND " + WordDocumentLabels.WORD_NAME +
+                " = '" + word + "' ;";
+        ResultSet rs = null;
+        rs = db.selectQuerydb(sql_request);
+        rs.next();
+        return rs.getInt(WordDocumentLabels.WORD_DOCUMENT_ID);
+
+    }
+    private ArrayList<Integer> getPositions(String document_id, String word) throws SQLException {
         ArrayList<Integer> pos = new ArrayList<>();
+        Integer word_document_id=getWordDocumentId(document_id,word);
         String sql_request = "SELECT " + WordIndexLabels.POSITION + " FROM " + DataBase.indexTableName + " WHERE " +
-                WordIndexLabels.DOCUMENT_HYPER_LINK + " = '" + document + "' AND " + WordIndexLabels.WORD_NAME +
-                " = '" + word + "';";
+                WordIndexLabels.WORD_DOCUMENT_ID + " = " + word_document_id ;
         ResultSet rs = null;
         rs = db.selectQuerydb(sql_request);
         while (rs.next()) {
@@ -330,37 +278,43 @@ public class Ranker {
         return pos;
     }
 
-    private ArrayList<String> getDocuments(String word) throws SQLException {
+    private ArrayList<String> getDocumentsId(String word) throws SQLException {
         ArrayList<String> Documents = new ArrayList<>();
-        String sql_request = "SELECT " + WordDocumentLabels.DOCUMENT_HYPER_LINK + " FROM " + DataBase.documentWordTableName +
-                " WHERE " + WordDocumentLabels.WORD_NAME + " = '" + word + " ';";
+       String sql_request = "SELECT " + DataBase.documentTableName +
+                "." +DocumentLabels.HYPER_LINK_ID+" From "+ DataBase.documentTableName+" inner join "+
+                DataBase.documentWordTableName+" on "+
+                DataBase.documentTableName+"."+DocumentLabels.HYPER_LINK_ID+" = "+
+                DataBase.documentWordTableName+"."+WordDocumentLabels.DOCUMENT_HYPER_LINK_ID+
+                " WHERE " + DataBase.documentWordTableName+"."+WordDocumentLabels.WORD_NAME + " = '" + word + " ';";
         ResultSet rs = null;
         rs = db.selectQuerydb(sql_request);
         while (rs.next()) {
-            Documents.add(rs.getString(WordDocumentLabels.DOCUMENT_HYPER_LINK));
+            Documents.add(rs.getString(DocumentLabels.HYPER_LINK_ID));
         }
         return Documents;
     }
 
-    private ArrayList<sortDocuments> getHighestScoresDocuments(Integer numberDocuments, Boolean imageSearch) throws SQLException {
+    private ArrayList<sortDocuments> getHighestScoresDocuments(Integer numberDocuments) throws SQLException {
         ArrayList<sortDocuments> heightsScores = new ArrayList<>();
         String sql_request = null;
-        if (imageSearch) {
-            sql_request = "SELECT " + WordImageLabels.IMAGE_HYPER_LINK + " FROM " + DataBase.imageWordTableName +
-                    " WHERE " + WordImageLabels.SCORE + " > 0 ORDER BY " + WordImageLabels.SCORE + " DESC LIMIT " + numberDocuments + ";";
-        } else {
-            sql_request = "SELECT " + WordDocumentLabels.DOCUMENT_HYPER_LINK + " FROM " + DataBase.documentWordTableName +
-                    " WHERE " + WordDocumentLabels.SCORE + " > 0 ORDER BY " + WordDocumentLabels.SCORE + " DESC LIMIT " + numberDocuments + ";";
-        }
+        /*
+            SELECT Orders.OrderID, Customers.CustomerName
+            FROM Orders
+            INNER JOIN Customers ON Orders.CustomerID = Customers.CustomerID;
+        */
+
+        sql_request = "SELECT " + DataBase.documentTableName +
+                        "." +DocumentLabels.HYPER_LINK+" From "+ DataBase.documentTableName+" inner join "+
+                        DataBase.documentWordTableName+" on "+
+                        DataBase.documentTableName+"."+DocumentLabels.HYPER_LINK_ID+" = "+
+                        DataBase.documentWordTableName+"."+WordDocumentLabels.DOCUMENT_HYPER_LINK_ID+
+                        " WHERE " +DataBase.documentWordTableName+"."+WordDocumentLabels.SCORE + " > 0 ORDER BY " +
+                        DataBase.documentWordTableName+"."+WordDocumentLabels.SCORE + " DESC LIMIT " + numberDocuments + ";";
+
         ResultSet rs = null;
         rs = db.selectQuerydb(sql_request);
         while (rs.next()) {
-            if (imageSearch) {
-                heightsScores.add(new sortDocuments(rs.getString(WordImageLabels.IMAGE_HYPER_LINK), 0f));
-            } else {
-                heightsScores.add(new sortDocuments(rs.getString(WordDocumentLabels.DOCUMENT_HYPER_LINK), 0f));
-            }
-
+         heightsScores.add(new sortDocuments(rs.getString(DocumentLabels.HYPER_LINK), 0f));
         }
         return heightsScores;
     }
@@ -368,7 +322,6 @@ public class Ranker {
     public ArrayList<String> getSuggestions(String search_query) throws SQLException {
         ArrayList<String> suggestions = new ArrayList<>();
         String sql_statement = "SELECT " + SUGGESTION + " FROM " + DataBase.suggestionTableName + " where " + SUGGESTION + " REGEXP '" + search_query + "?';";
-        //SELECT name FROM student_tbl WHERE name REGEXP '^sa';
         ResultSet rs = null;
         rs = db.selectQuerydb(sql_statement);
         while (rs.next()) {
@@ -384,6 +337,20 @@ public class Ranker {
         } catch (SQLException throwables) {
             throwables.printStackTrace();
         }
+    }
+
+    public ArrayList<ImageResult> imageSearch(String words) throws SQLException {
+        ArrayList<ImageResult> result =new ArrayList<>();
+        String sql_statement ="SELECT "+ImageLabels.IMAGE_URL+","+ImageLabels.CAPTION+" From "+DataBase.imageTableName+
+                " where " + ImageLabels.STEMMED + " REGEXP '" + words + "?';";
+        ResultSet rs = null;
+        rs = db.selectQuerydb(sql_statement);
+        while (rs.next()) {
+
+            result.add(new ImageResult(rs.getString(ImageLabels.IMAGE_URL),rs.getString(ImageLabels.CAPTION)));
+        }
+
+        return result;
     }
 
 
@@ -423,6 +390,33 @@ public class Ranker {
         }
     }
 
+    public class ImageResult{
+        public ImageResult(String image_url, String caption) {
+            this.image_url = image_url;
+            this.caption = caption;
+        }
+
+        public String getImage_url() {
+            return image_url;
+        }
+
+        public void setImage_url(String image_url) {
+            this.image_url = image_url;
+        }
+
+        public String getCaption() {
+            return caption;
+        }
+
+        public void setCaption(String caption) {
+            this.caption = caption;
+        }
+
+        public String image_url;
+        public String caption;
+
+
+    }
     public class sortDocuments {
         public String hyper_link;
         public Float score;

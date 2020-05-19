@@ -1,7 +1,7 @@
 package com.example.demo.data_base;
 
 public class WordIndexLabels {
-    public static final String WORD_NAME = "word_name";
-    public static final String DOCUMENT_HYPER_LINK = "document_hyper_link";
+    public static final String WORD_INDEX_ID = "id";
+    public static final String WORD_DOCUMENT_ID = "word_document_id";
     public static final String POSITION = "word_position";
 }

@@ -4,7 +4,7 @@ package com.example.demo.ranker;
 import com.example.demo.data_base.DataBase;
 import com.example.demo.data_base.TrendsLabels;
 import com.example.demo.data_base.WordDocumentLabels;
-import com.example.demo.data_base.WordImageLabels;
+
 import edu.stanford.nlp.pipeline.*;
 
 import java.lang.reflect.Array;
@@ -23,8 +23,6 @@ public class Trends {
         db = new DataBase();
         Properties props = new Properties();
         props.setProperty("annotators", "tokenize,ssplit,pos,lemma,ner");
-        props.setProperty("ner.applyFineGrained", "false");
-        props.setProperty("ner.fine.regexner.ignorecase", "true");
         // set up pipeline
         pipeline = new StanfordCoreNLP(props);
         // make an example document
@@ -38,26 +36,14 @@ public class Trends {
         // view results
         System.out.println("---");
         System.out.println("entities found");
-        String personName="";
+
         for (CoreEntityMention em : doc.entityMentions())
         {
-            if(em.entityType().equals("PERSON"))
-            {
-                personName+=em.text()+" ";
-            }
-            else
-            {
-                if(!personName.equals(""))
-                {
-                    names.add(personName);
-                    personName="";
-                }
+            if(em.entityType().equals("PERSON")) {
+                names.add(em.text());
             }
         }
-        if(!personName.equals(""))
-        {
-            names.add(personName);
-        }
+
         return names;
     }
 
