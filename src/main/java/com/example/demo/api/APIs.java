@@ -10,66 +10,73 @@ import com.example.demo.ranker.Ranker;
 import com.example.demo.ranker.Ranker.DocumentResult;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.net.*;
 import java.sql.SQLException;
 import java.util.ArrayList;
+
 
 @RestController
 @RequestMapping("/search")
 public class APIs {
 
-    Ranker ranker =null;
-    Trends trends=null;
-    public APIs()
-    {
-        ranker =new Ranker();
-        trends=new Trends();
+    public Ranker ranker = null;
+    public Trends trends = null;
+    public ClearScore clearScore=null;
+    public APIs() {
+        ranker = new Ranker();
+        trends = new Trends();
+        clearScore=new ClearScore();
     }
+
     ArrayList<String> listOfWords;
     ArrayList<String> names;
-    @GetMapping(value="document")
-    public String getDocument( @RequestParam(value = "search_query",defaultValue = "google") String search_query,
-                                 @RequestParam(value = "region", required = true, defaultValue = "Egypt") String region) throws SQLException, JSONException {
 
-        names=trends.getNames(search_query);
-        ranker.addSearchQuery(search_query.replace("\"",""));
-        if(names.size()>0)
-        {
-            for(String name : names)
-            {
-                trends.addFamousNames(name,region);
+    @GetMapping(value = "document")
+    public String getDocument(@RequestParam(value = "search_query", defaultValue = "google") String search_query,
+                              @RequestParam(value = "region", required = true, defaultValue = "Egypt") String region) throws SQLException, JSONException {
+
+
+        names = trends.getNames(search_query);
+        ranker.addSearchQuery(search_query.replace("\"", ""));
+        if (names.size() > 0) {
+            for (String name : names) {
+                trends.addFamousNames(name, region);
             }
 
         }
         listOfWords = queryPreProcessor(search_query);
-        String[] words =listOfWords.get(0).split(" ");
-        ArrayList<String> wordsArray=new ArrayList<>();
-        for(String word :words)
-        {
+        String[] words = listOfWords.get(0).split(" ");
+        ArrayList<String> wordsArray = new ArrayList<>();
+        for (String word : words) {
             wordsArray.add(word);
         }
-        String[] phrase =null;
-        if(listOfWords.size()>1)
-        {
-            phrase=listOfWords.get(1).split(" ");
+        String[] phrase = null;
+        if (listOfWords.size() > 1) {
+            phrase = listOfWords.get(1).split(" ");
         }
-        ArrayList<DocumentResult> results=ranker.makeRank(wordsArray,false,phrase);
-        for(DocumentResult result : results)
-        {
+        ArrayList<DocumentResult> results = ranker.makeRank(wordsArray, phrase,region);
+        for (DocumentResult result : results) {
             System.out.println(result.hyper_link);
             System.out.println(result.brief);
             System.out.println(result.title);
         }
-        JSONArray jsonArray= new JSONArray();
-        for(int i=0;i<results.size();i++)
-        {
+        JSONArray jsonArray = new JSONArray();
+        for (int i = 0; i < results.size(); i++) {
             JSONObject jsonObject = new JSONObject();
-            jsonObject.put("TITLE",results.get(i).title);
+            jsonObject.put("TITLE", results.get(i).title);
             jsonObject.put("URL", results.get(i).hyper_link);
-            jsonObject.put("BRIEF",results.get(i).brief);
-            jsonArray.put(jsonObject) ;
+            jsonObject.put("BRIEF", results.get(i).brief);
+            jsonArray.put(jsonObject);
         }
-        return  jsonArray.toString();
+        Thread t1 = new Thread(new ClearScore());
+        t1.start();
+        return jsonArray.toString();
     }
+
 
     private ArrayList<String> queryPreProcessor(String search_query) {
         ArrayList<String> result=new ArrayList<>();
@@ -126,9 +133,17 @@ public class APIs {
 
     @GetMapping(value="suggest")
     public String getSuggestion( @RequestParam(value = "search_query") String search_query) throws SQLException, JSONException {
-
-        ArrayList<String> suggestions=ranker.getSuggestions(search_query);
         JSONArray jsonArray= new JSONArray();
+        if(search_query=="")
+        {
+            JSONObject jsonObject = new JSONObject();
+            jsonObject.put("SUGGESTION", "none");
+            jsonArray.put(jsonObject) ;
+            return jsonArray.toString();
+        }
+        ArrayList<String> suggestions=ranker.getSuggestions(search_query);
+
+
         for(int i=0;i<suggestions.size();i++)
         {
             JSONObject jsonObject = new JSONObject();
@@ -136,5 +151,12 @@ public class APIs {
             jsonArray.put(jsonObject) ;
         }
         return jsonArray.toString();
+    }
+
+
+    private class ClearScore extends Thread {
+        public void run() {
+            ranker.clearScores();
+        }
     }
 }

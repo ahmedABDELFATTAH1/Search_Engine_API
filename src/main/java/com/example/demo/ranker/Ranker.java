@@ -5,8 +5,11 @@ import com.example.demo.data_base.*;
 import javax.xml.crypto.Data;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Locale;
 
 public class Ranker {
     public static final String SUGGESTION = "search_query";
@@ -66,10 +69,10 @@ public class Ranker {
 
     }
 
-    private void relevanceWordDocument(String word, Double IDF) throws SQLException {
+    private void relevanceWordDocument(String word, Double IDF,String region) throws SQLException {
         String sql_request = null;
         sql_request = "SELECT * FROM " + DataBase.documentWordTableName + " where " + WordDocumentLabels.WORD_NAME +
-                    "= '" + word + "';";
+                    "= '" + word + "' limit 100;";
         ResultSet rs = null;
         try {
             rs = db.selectQuerydb(sql_request);
@@ -80,7 +83,8 @@ public class Ranker {
                 String hyper_link_id = rs.getString(WordDocumentLabels.DOCUMENT_HYPER_LINK_ID);
                 Float tf = rs.getFloat(WordDocumentLabels.TERM_FREQUENCY);
                 Float popularity = getDocumentPopularity(hyper_link_id);
-                Double score = rs.getFloat(WordDocumentLabels.SCORE) + (1+tf) * (1+IDF) * (popularity+1);
+                Double location=getLocationScore(region,hyper_link_id);
+                Double score = rs.getFloat(WordDocumentLabels.SCORE) + location*(((tf) * (IDF)) + (.2*popularity));
                 String updateScore = "UPDATE " + DataBase.documentWordTableName +
                         " SET " + WordDocumentLabels.SCORE + " = " + score +
                         " WHERE " + WordDocumentLabels.WORD_NAME + " = '" + word + "' and " + WordDocumentLabels.DOCUMENT_HYPER_LINK_ID +
@@ -94,6 +98,27 @@ public class Ranker {
         }
 
     }
+
+    private Double getLocationScore(String region, String hyper_link_id) throws SQLException {
+        CountryCodes countryCodes=new CountryCodes();
+        String userEx=countryCodes.getCode(region);
+        String query="select "+DocumentLabels.COUNTRY_CODE+" from "+DataBase.documentTableName+" where "+DocumentLabels.HYPER_LINK_ID+" = '"+hyper_link_id+"';";
+        ResultSet rs = null;
+        try {
+            rs = db.selectQuerydb(query);
+            rs.next();
+        } catch (SQLException throwables) {
+           System.out.println("NO REGION PROVIDED");
+           return 1.0;
+        }
+        String countryCode = rs.getString(DocumentLabels.COUNTRY_CODE);
+        if(countryCode.equals(userEx))
+            return 1.1;
+        else
+            return 1.0;
+
+    }
+
 
     private Float getDocumentPopularity(String hyperLink_id) throws SQLException {
         String sql_request = "SELECT " + DocumentLabels.POPULARITY + " FROM " + DataBase.documentTableName + " Where " + DocumentLabels.HYPER_LINK_ID +
@@ -109,10 +134,10 @@ public class Ranker {
         return popularity;
     }
 
-    void clearScores() {
+    public void clearScores() {
         String sql_request = null;
         sql_request = "UPDATE " + DataBase.documentWordTableName + " SET " + WordDocumentLabels.SCORE +
-                    " = 0;";
+                    " = 0 where score > 0;";
 
         try {
             db.updatedb(sql_request);
@@ -133,13 +158,15 @@ public class Ranker {
         return rs.getFloat(1);
     }
 
+
+    //your code
+
     //private
-    public ArrayList<DocumentResult> makeRank(ArrayList<String> search_list, Boolean imageSearch,String[] phrase) throws SQLException {
-        clearScores();
+    public ArrayList<DocumentResult> makeRank(ArrayList<String> search_list,String[] phrase,String region) throws SQLException {
         ArrayList<String> criticalDocuments = null;
         if(phrase!=null)
         {
-            criticalDocuments = phraseSearching(phrase, imageSearch);
+            criticalDocuments = phraseSearching(phrase);
         }
         for (int i = 0; i < search_list.size(); i++) {
             String word = search_list.get(i);
@@ -150,7 +177,7 @@ public class Ranker {
                 System.out.println("word does exist");
             }
             Double IDF = getIDF(word);
-            relevanceWordDocument(word, IDF);
+            relevanceWordDocument(word, IDF,region);
         }
         ArrayList<sortDocuments> sortedDocuments = null;
         if (criticalDocuments != null) {
@@ -158,6 +185,8 @@ public class Ranker {
             for (String document : criticalDocuments) {
                 Float score = getScore(document);
                 sortedDocuments.add(new sortDocuments(document, score));
+                if(sortedDocuments.size()==100)
+                    break;
             }
             sortedDocuments.sort(Comparator.comparing(sortDocuments::getScore));
         } else {
@@ -181,8 +210,6 @@ public class Ranker {
         rs = db.selectQuerydb(sql_request);
         rs.next();
         return rs.getString(DocumentLabels.TITLE);
-
-
     }
 
     private String getBrief(String hyper_link) throws SQLException {
@@ -212,35 +239,53 @@ public class Ranker {
 
     }
 
-    private ArrayList<String> phraseSearching(String[] phrase, Boolean imageSearch) throws SQLException {
+    private ArrayList<String> phraseSearching(String[] phrase) throws SQLException {
         ArrayList<String> criticalDocuments = new ArrayList<>();
         String word = phrase[0];
         ArrayList<String> Documents = getDocumentsId(word);
         for (String documentId : Documents) {
             word = phrase[0];
             ArrayList<Integer> positions = getPositions(documentId, word);
+            if (positions.size() == 0)
+                continue;
             for (int i = 1; i < phrase.length; i++) {
                 for (int itr = 0; itr < positions.size(); itr++) {
                     positions.set(itr, positions.get(itr) + 1);
                 }
                 word = phrase[i];
                 ArrayList<Integer> newPositions = getPositions(documentId, word);
-                for (int second = 0; second < positions.size(); second++) {
-                    Boolean concatinate = false;
-                    for (int first = 0; first < newPositions.size(); first++) {
-                        if (newPositions.get(first) == positions.get(second)) {
-                            concatinate = true;
-                            continue;
-                        }
+                int pos_itr=0;
+                int new_pos_itr=0;
+                ArrayList<Integer> keepIndices=new ArrayList<>();
+                while(true)
+                {
+                    if(pos_itr==positions.size()||new_pos_itr==newPositions.size())
+                        break;
+                    if(newPositions.get(new_pos_itr).equals(positions.get(pos_itr)))
+                    {
+                        keepIndices.add(pos_itr);
+                        pos_itr++;
+                        new_pos_itr++;
                     }
-                    if (!concatinate) {
-                        positions.remove(second);
+                    else if(newPositions.get(new_pos_itr)>positions.get(pos_itr))
+                    {
+                        pos_itr++;
+                    }
+                    else if(newPositions.get(new_pos_itr)<positions.get(pos_itr))
+                    {
+                        new_pos_itr++;
                     }
                 }
+                ArrayList<Integer> tempPositions=new ArrayList<>();
+                for(Integer move_itr:keepIndices)
+                {
+                    tempPositions.add(positions.get(move_itr));
+                }
+                positions=tempPositions;
 
             }
-            if (positions.size() > 0) {
-
+            if(positions.size()>0)
+            {
                 criticalDocuments.add(getDocumentUrl(documentId));
             }
         }
@@ -261,15 +306,18 @@ public class Ranker {
                 " = '" + word + "' ;";
         ResultSet rs = null;
         rs = db.selectQuerydb(sql_request);
-        rs.next();
+        if(rs.next())
         return rs.getInt(WordDocumentLabels.WORD_DOCUMENT_ID);
+        else return -1;
 
     }
     private ArrayList<Integer> getPositions(String document_id, String word) throws SQLException {
         ArrayList<Integer> pos = new ArrayList<>();
         Integer word_document_id=getWordDocumentId(document_id,word);
+        if(word_document_id==-1)
+            return new ArrayList<>();
         String sql_request = "SELECT " + WordIndexLabels.POSITION + " FROM " + DataBase.indexTableName + " WHERE " +
-                WordIndexLabels.WORD_DOCUMENT_ID + " = " + word_document_id ;
+                WordIndexLabels.WORD + " = '" + word +"' and "+WordIndexLabels.DOCUMENT_ID+" = "+document_id;
         ResultSet rs = null;
         rs = db.selectQuerydb(sql_request);
         while (rs.next()) {
@@ -297,11 +345,6 @@ public class Ranker {
     private ArrayList<sortDocuments> getHighestScoresDocuments(Integer numberDocuments) throws SQLException {
         ArrayList<sortDocuments> heightsScores = new ArrayList<>();
         String sql_request = null;
-        /*
-            SELECT Orders.OrderID, Customers.CustomerName
-            FROM Orders
-            INNER JOIN Customers ON Orders.CustomerID = Customers.CustomerID;
-        */
 
         sql_request = "SELECT " + DataBase.documentTableName +
                         "." +DocumentLabels.HYPER_LINK+" From "+ DataBase.documentTableName+" inner join "+
@@ -330,24 +373,37 @@ public class Ranker {
         return suggestions;
     }
 
-    public void addSearchQuery(String search_query) {
-        String sql_statement = "INSERT INTO " + DataBase.suggestionTableName + "(" + SUGGESTION + ") values ('" + search_query + "');";
-        try {
-            db.updatedb(sql_statement);
-        } catch (SQLException throwables) {
-            throwables.printStackTrace();
+    public void addSearchQuery(String search_query) throws SQLException {
+        if(!searchExist(search_query)) {
+            String sql_statement = "INSERT INTO " + DataBase.suggestionTableName + "(" + SUGGESTION + ") values ('" + search_query + "');";
+            try {
+                db.updatedb(sql_statement);
+            } catch (SQLException throwables) {
+                throwables.printStackTrace();
+            }
         }
+    }
+
+    private boolean searchExist(String search) throws SQLException {
+        String sql_query="select * from "+DataBase.suggestionTableName+" where "+SUGGESTION+" = '"+search+"';";
+        ResultSet rs = null;
+        rs = db.selectQuerydb(sql_query);
+        return rs.next();
     }
 
     public ArrayList<ImageResult> imageSearch(String words) throws SQLException {
         ArrayList<ImageResult> result =new ArrayList<>();
-        String sql_statement ="SELECT "+ImageLabels.IMAGE_URL+","+ImageLabels.CAPTION+" From "+DataBase.imageTableName+
-                " where " + ImageLabels.STEMMED + " REGEXP '" + words + "?';";
+        String sql_statement ="SELECT Distinct "+ImageLabels.IMAGE_URL+","+ImageLabels.CAPTION+" From "+DataBase.imageTableName+
+                " where " + ImageLabels.STEMMED + " LIKE '"+words+"'";
         ResultSet rs = null;
         rs = db.selectQuerydb(sql_statement);
-        while (rs.next()) {
 
-            result.add(new ImageResult(rs.getString(ImageLabels.IMAGE_URL),rs.getString(ImageLabels.CAPTION)));
+        while (rs.next()) {
+            String imageUrl=rs.getString(ImageLabels.IMAGE_URL);
+
+            result.add(new ImageResult(imageUrl,rs.getString(ImageLabels.CAPTION)));
+
+
         }
 
         return result;
