@@ -25,11 +25,9 @@ public class APIs {
 
     public Ranker ranker = null;
     public Trends trends = null;
-    public ClearScore clearScore=null;
     public APIs() {
         ranker = new Ranker();
         trends = new Trends();
-        clearScore=new ClearScore();
     }
 
     ArrayList<String> listOfWords;
@@ -72,8 +70,6 @@ public class APIs {
             jsonObject.put("BRIEF", results.get(i).brief);
             jsonArray.put(jsonObject);
         }
-        Thread t1 = new Thread(new ClearScore());
-        t1.start();
         return jsonArray.toString();
     }
 
@@ -154,9 +150,5 @@ public class APIs {
     }
 
 
-    private class ClearScore extends Thread {
-        public void run() {
-            ranker.clearScores();
-        }
-    }
+
 }

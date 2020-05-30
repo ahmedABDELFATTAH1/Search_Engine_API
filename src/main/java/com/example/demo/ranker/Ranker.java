@@ -2,14 +2,11 @@ package com.example.demo.ranker;
 
 import com.example.demo.data_base.*;
 
-import javax.xml.crypto.Data;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.Locale;
+import java.util.HashMap;
 
 public class Ranker {
     public static final String SUGGESTION = "search_query";
@@ -69,10 +66,10 @@ public class Ranker {
 
     }
 
-    private void relevanceWordDocument(String word, Double IDF,String region) throws SQLException {
+    private void relevanceWordDocument(String word, Double IDF,String region,HashMap<String, Double> documentMap) throws SQLException {
         String sql_request = null;
         sql_request = "SELECT * FROM " + DataBase.documentWordTableName + " where " + WordDocumentLabels.WORD_NAME +
-                    "= '" + word + "' limit 100;";
+                    "= '" + word + "';";
         ResultSet rs = null;
         try {
             rs = db.selectQuerydb(sql_request);
@@ -85,16 +82,15 @@ public class Ranker {
                 Float popularity = getDocumentPopularity(hyper_link_id);
                 Double location=getLocationScore(region,hyper_link_id);
                 Double score = rs.getFloat(WordDocumentLabels.SCORE) + location*(((tf) * (IDF)) + (.2*popularity));
-                String updateScore = "UPDATE " + DataBase.documentWordTableName +
-                        " SET " + WordDocumentLabels.SCORE + " = " + score +
-                        " WHERE " + WordDocumentLabels.WORD_NAME + " = '" + word + "' and " + WordDocumentLabels.DOCUMENT_HYPER_LINK_ID +
-                        " = '" + hyper_link_id + " ';";
-                try {
-                    db.updatedb(updateScore);
-                } catch (SQLException throwables) {
-                    throwables.printStackTrace();
+                if(documentMap.containsKey(hyper_link_id))
+                {
+                    Double oldScore=documentMap.get(hyper_link_id);
+                    documentMap.replace(hyper_link_id,oldScore+score);
                 }
-
+                else
+                {
+                    documentMap.put(hyper_link_id,score);
+                }
         }
 
     }
@@ -163,6 +159,7 @@ public class Ranker {
 
     //private
     public ArrayList<DocumentResult> makeRank(ArrayList<String> search_list,String[] phrase,String region) throws SQLException {
+        HashMap<String, Double> documentMap = new HashMap<String, Double>();
         ArrayList<String> criticalDocuments = null;
         if(phrase!=null)
         {
@@ -177,26 +174,28 @@ public class Ranker {
                 System.out.println("word does exist");
             }
             Double IDF = getIDF(word);
-            relevanceWordDocument(word, IDF,region);
+            relevanceWordDocument(word, IDF,region,documentMap);
         }
         ArrayList<sortDocuments> sortedDocuments = null;
         if (criticalDocuments != null) {
             sortedDocuments = new ArrayList<>();
             for (String document : criticalDocuments) {
-                Float score = getScore(document);
+                Double score =documentMap.get(document);
                 sortedDocuments.add(new sortDocuments(document, score));
                 if(sortedDocuments.size()==100)
                     break;
             }
-            sortedDocuments.sort(Comparator.comparing(sortDocuments::getScore));
+            sortedDocuments.sort(Comparator.comparing(sortDocuments::getScore).reversed());
         } else {
-            sortedDocuments = getHighestScoresDocuments(100);
+            sortedDocuments = getHighestScoresDocuments(documentMap);
+            sortedDocuments.sort(Comparator.comparing(sortDocuments::getScore).reversed());
         }
         ArrayList<DocumentResult> documentResult = new ArrayList<>();
         for (sortDocuments doc : sortedDocuments) {
-            String hyper_link = doc.hyper_link;
-            String brief = getBrief(hyper_link);
-            String title = getTitle(hyper_link);
+            String hyper_link_id = doc.hyper_link_id;
+            String hyper_link = getDocumentUrl(doc.hyper_link_id);
+            String brief = getBrief(hyper_link_id);
+            String title = getTitle(hyper_link_id);
             documentResult.add(new DocumentResult(hyper_link,title, brief));
         }
         return documentResult;
@@ -204,7 +203,7 @@ public class Ranker {
 
     private String getTitle(String hyper_link) throws SQLException {
         String sql_request = null;
-            sql_request = " SELECT " + DocumentLabels.TITLE + " FROM " + DataBase.documentTableName + " WHERE " + DocumentLabels.HYPER_LINK +
+            sql_request = " SELECT " + DocumentLabels.TITLE + " FROM " + DataBase.documentTableName + " WHERE " + DocumentLabels.HYPER_LINK_ID +
                     " ='" + hyper_link + "';";
         ResultSet rs = null;
         rs = db.selectQuerydb(sql_request);
@@ -214,7 +213,7 @@ public class Ranker {
 
     private String getBrief(String hyper_link) throws SQLException {
         String sql_request = null;
-        sql_request = " SELECT " + DocumentLabels.STREAM_WORDS + " FROM " + DataBase.documentTableName + " WHERE " + DocumentLabels.HYPER_LINK +
+        sql_request = " SELECT " + DocumentLabels.STREAM_WORDS + " FROM " + DataBase.documentTableName + " WHERE " + DocumentLabels.HYPER_LINK_ID +
                     " ='" + hyper_link + "';";
 
         ResultSet rs = null;
@@ -286,7 +285,7 @@ public class Ranker {
             }
             if(positions.size()>0)
             {
-                criticalDocuments.add(getDocumentUrl(documentId));
+                criticalDocuments.add(documentId);
             }
         }
         return criticalDocuments;
@@ -342,22 +341,10 @@ public class Ranker {
         return Documents;
     }
 
-    private ArrayList<sortDocuments> getHighestScoresDocuments(Integer numberDocuments) throws SQLException {
+    private ArrayList<sortDocuments> getHighestScoresDocuments(HashMap<String, Double> documentMap) throws SQLException {
         ArrayList<sortDocuments> heightsScores = new ArrayList<>();
-        String sql_request = null;
-
-        sql_request = "SELECT " + DataBase.documentTableName +
-                        "." +DocumentLabels.HYPER_LINK+" From "+ DataBase.documentTableName+" inner join "+
-                        DataBase.documentWordTableName+" on "+
-                        DataBase.documentTableName+"."+DocumentLabels.HYPER_LINK_ID+" = "+
-                        DataBase.documentWordTableName+"."+WordDocumentLabels.DOCUMENT_HYPER_LINK_ID+
-                        " WHERE " +DataBase.documentWordTableName+"."+WordDocumentLabels.SCORE + " > 0 ORDER BY " +
-                        DataBase.documentWordTableName+"."+WordDocumentLabels.SCORE + " DESC LIMIT " + numberDocuments + ";";
-
-        ResultSet rs = null;
-        rs = db.selectQuerydb(sql_request);
-        while (rs.next()) {
-         heightsScores.add(new sortDocuments(rs.getString(DocumentLabels.HYPER_LINK), 0f));
+        for (String link_id : documentMap.keySet()) {
+            heightsScores.add(new sortDocuments(link_id,documentMap.get(link_id)));
         }
         return heightsScores;
     }
@@ -474,27 +461,27 @@ public class Ranker {
 
     }
     public class sortDocuments {
-        public String hyper_link;
-        public Float score;
+        public String hyper_link_id;
+        public Double score;
 
-        public sortDocuments(String hyper_link, Float score) {
-            this.hyper_link = hyper_link;
+        public sortDocuments(String hyper_link, Double score) {
+            this.hyper_link_id = hyper_link;
             this.score = score;
         }
 
         public String getHyper_link() {
-            return hyper_link;
+            return hyper_link_id;
         }
 
         public void setHyper_link(String hyper_link) {
-            this.hyper_link = hyper_link;
+            this.hyper_link_id = hyper_link;
         }
 
-        public Float getScore() {
+        public Double getScore() {
             return score;
         }
 
-        public void setScore(Float score) {
+        public void setScore(Double score) {
             this.score = score;
         }
 
